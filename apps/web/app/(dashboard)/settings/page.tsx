@@ -180,7 +180,9 @@ export default function SettingsPage() {
           </p>
           <p className="mt-2">
             <a
-              href="https://github.com"
+              href="https://github.com/nahumoore/lightreach"
+              target="_blank"
+              rel="noreferrer"
               className="text-primary hover:underline"
             >
               View on GitHub →

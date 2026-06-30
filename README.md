@@ -76,3 +76,10 @@ commands, data model, and scheduler design.
 ## License
 
 MIT — see [LICENSE](./LICENSE).
+
+---
+
+Lightreach helps you send cold outreach. If you also want to automate the *discovery*
+side of link building — finding relevant backlink opportunities (guest posts, resource
+pages, roundups) and drafting outreach for your approval — check out
+[Mentiohunt](https://mentiohunt.com), another project of mine.
