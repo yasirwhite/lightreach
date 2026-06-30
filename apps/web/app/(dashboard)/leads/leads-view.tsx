@@ -40,17 +40,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@workspace/ui/components/select'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@workspace/ui/components/tabs'
 import {
   IconUpload,
   IconUsers,
   IconFolderOpen,
+  IconFolders,
   IconDots,
   IconTrash,
   IconLoader,
   IconCheck,
   IconX,
   IconUserPlus,
+  IconSearch,
+  IconArrowUp,
+  IconArrowDown,
+  IconArrowsSort,
+  IconChevronLeft,
+  IconChevronRight,
 } from '@tabler/icons-react'
 import { parseCSV, detectMapping, mapCSVRows, LEAD_FIELDS } from '@workspace/core/csv'
 import type { ColumnMapping } from '@workspace/core/csv'
@@ -704,8 +710,112 @@ function ImportWizardDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Manage lists dialog
+// ---------------------------------------------------------------------------
+
+function ManageListsDialog({
+  open,
+  onOpenChange,
+  lists,
+  onImport,
+  onAddLead,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  lists: ListWithCount[]
+  onImport: (listId: number) => void
+  onAddLead: (listId: number) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Manage lists</DialogTitle>
+        </DialogHeader>
+        {lists.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <div className="bg-primary/10 mb-4 flex size-14 items-center justify-center rounded-full">
+              <IconUsers className="text-primary size-7" />
+            </div>
+            <CardTitle className="mb-1 text-base">No lists yet</CardTitle>
+            <CardDescription className="max-w-xs text-center text-sm">
+              Create a list to start organizing your contacts.
+            </CardDescription>
+          </div>
+        ) : (
+          <div className="overflow-y-auto max-h-[60vh] rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>List name</TableHead>
+                  <TableHead>Leads</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="w-10" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lists.map((list) => (
+                  <ListTableRow
+                    key={list.id}
+                    list={list}
+                    onAddLead={() => onAddLead(list.id)}
+                    onImport={() => onImport(list.id)}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <DialogFooter showCloseButton />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Main view
 // ---------------------------------------------------------------------------
+
+type SortKey = 'name' | 'email' | 'company' | 'list' | 'status'
+type SortDir = 'asc' | 'desc'
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
+
+function SortableHead({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+}: {
+  label: string
+  sortKey: SortKey
+  activeKey: SortKey
+  dir: SortDir
+  onSort: (key: SortKey) => void
+}) {
+  const isActive = activeKey === sortKey
+  return (
+    <TableHead>
+      <button
+        type="button"
+        className="flex items-center gap-1 hover:text-foreground"
+        onClick={() => onSort(sortKey)}
+      >
+        {label}
+        {isActive ? (
+          dir === 'asc' ? (
+            <IconArrowUp className="size-3.5" />
+          ) : (
+            <IconArrowDown className="size-3.5" />
+          )
+        ) : (
+          <IconArrowsSort className="size-3.5 text-muted-foreground/50" />
+        )}
+      </button>
+    </TableHead>
+  )
+}
 
 export function LeadsView({
   lists,
@@ -715,10 +825,19 @@ export function LeadsView({
   leads: LeadRow[]
 }) {
   const [addListOpen, setAddListOpen] = useState(false)
+  const [manageListsOpen, setManageListsOpen] = useState(false)
   const [addLeadOpen, setAddLeadOpen] = useState(false)
   const [addLeadDefaultListId, setAddLeadDefaultListId] = useState<number | undefined>(undefined)
   const [importOpen, setImportOpen] = useState(false)
   const [importDefaultListId, setImportDefaultListId] = useState<number | undefined>(undefined)
+
+  const [search, setSearch] = useState('')
+  const [listFilter, setListFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   const listNameMap = useMemo(() => new Map(lists.map((l) => [l.id, l.name])), [lists])
 
@@ -732,6 +851,86 @@ export function LeadsView({
     setImportOpen(true)
   }
 
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+    setPage(1)
+  }
+
+  const filteredLeads = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return leads.filter((lead) => {
+      if (listFilter !== 'all' && String(lead.listId) !== listFilter) return false
+      if (statusFilter !== 'all' && lead.status !== statusFilter) return false
+      if (q) {
+        const haystack = [lead.firstName, lead.lastName, lead.email, lead.company]
+          .join(' ')
+          .toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+  }, [leads, search, listFilter, statusFilter])
+
+  const sortedLeads = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...filteredLeads].sort((a, b) => {
+      let av = ''
+      let bv = ''
+      switch (sortKey) {
+        case 'name':
+          av = `${a.firstName} ${a.lastName}`.trim().toLowerCase()
+          bv = `${b.firstName} ${b.lastName}`.trim().toLowerCase()
+          break
+        case 'email':
+          av = a.email.toLowerCase()
+          bv = b.email.toLowerCase()
+          break
+        case 'company':
+          av = a.company.toLowerCase()
+          bv = b.company.toLowerCase()
+          break
+        case 'list':
+          av = (listNameMap.get(a.listId) ?? '').toLowerCase()
+          bv = (listNameMap.get(b.listId) ?? '').toLowerCase()
+          break
+        case 'status':
+          av = a.status.toLowerCase()
+          bv = b.status.toLowerCase()
+          break
+      }
+      return av < bv ? -1 * dir : av > bv ? 1 * dir : 0
+    })
+  }, [filteredLeads, sortKey, sortDir, listNameMap])
+
+  const totalPages = Math.max(1, Math.ceil(sortedLeads.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const pagedLeads = sortedLeads.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+
+  function updateSearch(value: string) {
+    setSearch(value)
+    setPage(1)
+  }
+
+  function updateListFilter(value: string) {
+    setListFilter(value)
+    setPage(1)
+  }
+
+  function updateStatusFilter(value: string) {
+    setStatusFilter(value)
+    setPage(1)
+  }
+
+  function updatePageSize(value: string) {
+    setPageSize(Number(value))
+    setPage(1)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -742,6 +941,10 @@ export function LeadsView({
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setManageListsOpen(true)}>
+            <IconFolders className="size-4" />
+            Manage lists
+          </Button>
           <Button variant="outline" className="gap-2" onClick={() => setAddListOpen(true)}>
             <IconFolderOpen className="size-4" />
             New list
@@ -762,127 +965,187 @@ export function LeadsView({
         </div>
       </div>
 
-      <Tabs defaultValue="lists">
-        <TabsList>
-          <TabsTrigger value="lists">
-            Lists
-            {lists.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {lists.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="all">
-            All leads
-            {leads.length > 0 && (
-              <Badge variant="secondary" className="ml-1.5 text-xs">
-                {leads.length}
-              </Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1 min-w-[220px]">
+          <IconSearch className="text-muted-foreground absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+          <Input
+            className="pl-9"
+            placeholder="Search by name, email, or company..."
+            value={search}
+            onChange={(e) => updateSearch(e.target.value)}
+          />
+        </div>
+        <Select value={listFilter} onValueChange={updateListFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="List" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All lists</SelectItem>
+            {lists.map((l) => (
+              <SelectItem key={l.id} value={String(l.id)}>
+                {l.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={statusFilter} onValueChange={updateStatusFilter}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            <SelectItem value="new">New</SelectItem>
+            <SelectItem value="contacted">Contacted</SelectItem>
+            <SelectItem value="replied">Replied</SelectItem>
+            <SelectItem value="bounced">Bounced</SelectItem>
+            <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
+          </SelectContent>
+        </Select>
+        <span className="text-muted-foreground ml-auto text-sm">
+          {sortedLeads.length} {sortedLeads.length === 1 ? 'lead' : 'leads'}
+        </span>
+      </div>
 
-        {/* Lists tab */}
-        <TabsContent value="lists" className="mt-4">
-          {lists.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-20">
-                <div className="bg-primary/10 mb-4 flex size-14 items-center justify-center rounded-full">
-                  <IconUsers className="text-primary size-7" />
-                </div>
-                <CardTitle className="mb-1 text-base">No lists yet</CardTitle>
-                <CardDescription className="max-w-xs text-center text-sm">
-                  Create a list and import a CSV to add contacts. You can map CSV columns to lead
-                  fields in the import wizard.
-                </CardDescription>
-                <Button className="mt-6 gap-2" onClick={() => setAddListOpen(true)}>
-                  <IconFolderOpen className="size-4" />
-                  Create your first list
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>List name</TableHead>
-                      <TableHead>Leads</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead className="w-10" />
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {lists.map((list) => (
-                      <ListTableRow
-                        key={list.id}
-                        list={list}
-                        onAddLead={() => openAddLead(list.id)}
-                        onImport={() => openImport(list.id)}
-                      />
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* All leads tab */}
-        <TabsContent value="all" className="mt-4">
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead>Company</TableHead>
-                    <TableHead>List</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="w-10" />
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <SortableHead
+                  label="Name"
+                  sortKey="name"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={handleSort}
+                />
+                <SortableHead
+                  label="Email"
+                  sortKey="email"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={handleSort}
+                />
+                <SortableHead
+                  label="Company"
+                  sortKey="company"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={handleSort}
+                />
+                <SortableHead
+                  label="List"
+                  sortKey="list"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={handleSort}
+                />
+                <SortableHead
+                  label="Status"
+                  sortKey="status"
+                  activeKey={sortKey}
+                  dir={sortDir}
+                  onSort={handleSort}
+                />
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pagedLeads.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={6}
+                    className="text-muted-foreground py-12 text-center text-sm"
+                  >
+                    {leads.length === 0
+                      ? 'No leads yet. Import a CSV to get started.'
+                      : 'No leads match your filters.'}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                pagedLeads.map((lead) => (
+                  <TableRow key={lead.id}>
+                    <TableCell className="font-medium">
+                      {[lead.firstName, lead.lastName].filter(Boolean).join(' ') || '—'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {lead.email}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {lead.company || '—'}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {listNameMap.get(lead.listId) ?? '—'}
+                    </TableCell>
+                    <TableCell>{statusBadge(lead.status)}</TableCell>
+                    <TableCell>
+                      <LeadRowActions lead={lead} />
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {leads.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={6}
-                        className="text-muted-foreground py-12 text-center text-sm"
-                      >
-                        No leads yet. Import a CSV to get started.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    leads.map((lead) => (
-                      <TableRow key={lead.id}>
-                        <TableCell className="font-medium">
-                          {[lead.firstName, lead.lastName].filter(Boolean).join(' ') || '—'}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {lead.email}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {lead.company || '—'}
-                        </TableCell>
-                        <TableCell className="text-muted-foreground text-sm">
-                          {listNameMap.get(lead.listId) ?? '—'}
-                        </TableCell>
-                        <TableCell>{statusBadge(lead.status)}</TableCell>
-                        <TableCell>
-                          <LeadRowActions lead={lead} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
+      {/* Pagination */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Rows per page</span>
+          <Select value={String(pageSize)} onValueChange={updatePageSize}>
+            <SelectTrigger className="w-[70px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-muted-foreground text-sm">
+            Page {currentPage} of {totalPages}
+          </span>
+          <div className="flex gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              disabled={currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <IconChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-8"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              <IconChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <ManageListsDialog
+        open={manageListsOpen}
+        onOpenChange={setManageListsOpen}
+        lists={lists}
+        onAddLead={(id) => {
+          setManageListsOpen(false)
+          openAddLead(id)
+        }}
+        onImport={(id) => {
+          setManageListsOpen(false)
+          openImport(id)
+        }}
+      />
       <NewListDialog open={addListOpen} onOpenChange={setAddListOpen} />
       <NewLeadDialog
         open={addLeadOpen}
