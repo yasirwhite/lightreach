@@ -6,7 +6,7 @@ to Instantly, Smartlead, and lemlist.
 Send personalized emails at scale using your own SMTP mailboxes. No paid SaaS, no data
 leaving your machine, no per-seat pricing.
 
-![Campaign Creation Demo](./lightreach-demo-clip2.gif)
+![Campaign Creation Demo](./lightreach-demo-official.gif)
 
 ## Features
 
